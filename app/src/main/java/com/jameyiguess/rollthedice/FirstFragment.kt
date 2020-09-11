@@ -1,6 +1,8 @@
 package com.jameyiguess.rollthedice
 
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
@@ -9,17 +11,23 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
-import androidx.navigation.fragment.findNavController
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.content.ContextCompat
+import androidx.core.widget.addTextChangedListener
 import com.jameyiguess.rollthedice.util.ProbabilityMachine
-import kotlin.reflect.typeOf
+import kotlin.math.absoluteValue
 
 /**
  * A simple [Fragment] subclass as the default destination in the navigation.
  */
 class FirstFragment : Fragment(), View.OnClickListener, View.OnLongClickListener {
-    private var mDice = ArrayList<String>()
-    private var mModifier = 0
-    private val mProbabilityMachine: ProbabilityMachine = ProbabilityMachine()
+    private var diceStrings = ArrayList<String>()
+    private var modifier = 0
+    private var dc = 0
+    private val probabilityMachine: ProbabilityMachine = ProbabilityMachine()
+    private var probability = 0
+    private var resultTextView: TextView? = null
+    private var dcEditText: EditText? = null
 
     override fun onCreateView(
             inflater: LayoutInflater, container: ViewGroup?,
@@ -56,48 +64,43 @@ class FirstFragment : Fragment(), View.OnClickListener, View.OnLongClickListener
         val d100Button = view.findViewById(R.id.d100ImageButton) as ImageButton
         d100Button.setOnClickListener(this)
         d100Button.setOnLongClickListener(this)
-        val dcEditText = view.findViewById(R.id.dc) as EditText
-        val resultTextView = view.findViewById(R.id.result) as TextView
+        dcEditText = view.findViewById(R.id.dc) as EditText
+        resultTextView = view.findViewById(R.id.result)
 
-        view.findViewById<Button>(R.id.calculate).setOnClickListener {
-            val text = view.findViewById<TextView>(R.id.diceTextView).text
-            if (text.isNotBlank()) {
-                val list = text.split(" ")
-                val dice = arrayListOf<Int>()
-                for (diceString in list) {
-                    val parts = diceString.split("d")
-                    val numDiceString = parts[0]
-                    var numDice = 1
-                    val numSides = parts[1].toInt()
-                    if (!numDiceString.isBlank()) {
-                        numDice = numDiceString.toInt()
-                    }
-                    for (i in 1..numDice) {
-                        dice.add(numSides)
-                    }
-                }
-                mProbabilityMachine.dice = dice
-                mProbabilityMachine.modifier = mModifier
-                val probability = mProbabilityMachine.getProbabilityToBeatDc(dcEditText.text.toString().toInt())
-                resultTextView.text = "${probability.toString()}%"
+        reset()
+
+        (dcEditText as EditText).addTextChangedListener(object: TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
             }
-        }
 
-        view.findViewById<Button>(R.id.modifierMinusButton).setOnClickListener {
-            mModifier--
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
+            }
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val dcString = s?.toString()
+                if (dcString != null && dcString.isNotEmpty()) {
+                    dc = dcString.toInt()
+                    updateProbability()
+                    updateText()
+                }
+            }
+        })
+
+        view.findViewById<ImageButton>(R.id.minusOneImageButton).setOnClickListener {
+            modifier--
+            updateProbability()
             updateText()
         }
 
-        view.findViewById<Button>(R.id.modifierPlusButton).setOnClickListener {
-            mModifier++
+        view.findViewById<ImageButton>(R.id.plusOneImageButton).setOnClickListener {
+            modifier++
+            updateProbability()
             updateText()
         }
 
         view.findViewById<Button>(R.id.resetButton).setOnClickListener {
-            mDice = arrayListOf<String>()
-            mModifier = 0
-            dcEditText.setText("")
-            resultTextView.text = ""
+            reset()
+            updateProbability()
             updateText()
         }
     }
@@ -130,7 +133,19 @@ class FirstFragment : Fragment(), View.OnClickListener, View.OnLongClickListener
                 text = "d100"
             }
         }
-        mDice.add(text)
+        val foundItem = diceStrings.find { it.endsWith(text) }
+        if (foundItem != null) {
+            diceStrings.remove(foundItem)
+            val parts = foundItem.split("d")
+            val numDiceString = parts[0]
+            var numExistingDice = 1
+            if (!numDiceString.isBlank()) {
+                numExistingDice = numDiceString.toInt()
+            }
+            text = "${numExistingDice + 1}$text"
+        }
+        diceStrings.add(text)
+        updateProbability()
         updateText()
     }
 
@@ -162,22 +177,71 @@ class FirstFragment : Fragment(), View.OnClickListener, View.OnLongClickListener
                 text = "d100"
             }
         }
-        mDice.remove(text)
+        val foundItem = diceStrings.find { it.endsWith(text) }
+        if (foundItem != null) {
+            diceStrings.remove(foundItem)
+            val parts = foundItem.split("d")
+            val numDiceString = parts[0]
+            var numExistingDice = 1
+            if (!numDiceString.isBlank()) {
+                numExistingDice = numDiceString.toInt()
+            }
+            val newNumberOfDice = numExistingDice - 1
+            if (newNumberOfDice == 0) {
+                diceStrings.remove(foundItem)
+            } else if (newNumberOfDice == 1) {
+                diceStrings.add(text)
+            } else {
+                text = "$newNumberOfDice$text"
+                diceStrings.add(text)
+            }
+        }
+        updateProbability()
         updateText()
         return true
     }
 
+    private fun updateProbability() {
+        if (diceStrings.isNullOrEmpty()) {
+            return
+        }
+        val dice = arrayListOf<Int>()
+        for (diceString in diceStrings) {
+            val parts = diceString.split("d")
+            val numDiceString = parts[0]
+            var numDice = 1
+            val numSides = parts[1].toInt()
+            if (!numDiceString.isBlank()) {
+                numDice = numDiceString.toInt()
+            }
+            for (i in 1..numDice) {
+                dice.add(numSides)
+            }
+        }
+        probabilityMachine.dice = dice
+        probabilityMachine.modifier = modifier
+        probability = probabilityMachine.getProbabilityToBeatDc(dc)
+        activity?.runOnUiThread { resultTextView?.text = "${probability.toString()}%" }
+    }
+
     private fun updateText() {
         activity?.runOnUiThread {
-            val text = mDice.joinToString(" ")
+            val text = diceStrings.joinToString(" ")
             var modifier = ""
-            if (mModifier > 0) {
-                modifier = "+$mModifier"
-            } else if (mModifier < 0) {
-                modifier = "-$mModifier"
+            if (this.modifier > 0) {
+                modifier = "+${this.modifier}"
+            } else if (this.modifier < 0) {
+                modifier = "-${this.modifier.absoluteValue}"
             }
             view?.findViewById<TextView>(R.id.diceTextView)?.text = text
             view?.findViewById<TextView>(R.id.modifierTextView)?.text = modifier
         }
+    }
+
+    private fun reset() {
+        diceStrings = arrayListOf<String>()
+        modifier = 0
+//        dc = 0
+        (resultTextView as TextView).text = "--%"
     }
 }
