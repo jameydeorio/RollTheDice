@@ -1,5 +1,7 @@
 # Roll The Dice
 
+![example-screen](https://github.com/jameydeorio/RollTheDice/blob/main/example_screen.png?raw=true)
+
 Allows you to see your chances of beating a DC with any combination of dice and modifiers.
 
 Inspired by the % readout in the Pathfinder ACG app, and sorely missing it while playing the real card game.
